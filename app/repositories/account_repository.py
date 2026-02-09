@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
@@ -45,8 +45,10 @@ class AccountRepository(Repository[Account]):
         return account
 
     async def update_balance(self, db: AsyncSession, account: Account, amount: Decimal) -> Account:
-        """Update account balance (add amount)"""
-        account.balance += amount  # type: ignore[assignment]
+        """Update account balance (add amount) — atomic UPDATE to avoid lost updates under concurrency"""
+        account_id = int(account.id)
+        stmt = update(Account).where(Account.id == account_id).values(balance=Account.balance + amount)
+        await db.execute(stmt)
         await db.commit()
         await db.refresh(account)
         return account

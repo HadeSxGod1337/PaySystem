@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -112,11 +113,18 @@ class PaymentService(Service[Payment]):
         # Get or create account
         account = await self._get_or_create_account(webhook_data.user_id, webhook_data.account_id)
 
-        # Process payment
+        # Process payment (catch duplicate transaction_id from concurrent webhooks)
         amount = webhook_data.amount
-        payment = await self._process_payment(
-            webhook_data.transaction_id, webhook_data.user_id, account, amount
-        )
+        try:
+            payment = await self._process_payment(
+                webhook_data.transaction_id, webhook_data.user_id, account, amount
+            )
+        except IntegrityError:
+            await self.db.rollback()
+            raise TransactionAlreadyProcessedError(
+                message=ErrorMessages.TRANSACTION_ALREADY_PROCESSED,
+                detail=ErrorMessages.TRANSACTION_ALREADY_PROCESSED,
+            )
 
         # Refresh balance to get actual value
         await self.db.refresh(account)
